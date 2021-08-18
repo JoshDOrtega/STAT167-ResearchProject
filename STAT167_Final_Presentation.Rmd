@@ -1,0 +1,785 @@
+---
+title: "R over SAS Final Project"
+author: Orobosa Ogbeide, Joshua Ortega, Jocelyn Chung, Jade Ou
+date: May 31, 2021
+output: 
+    revealjs::revealjs_presentation:
+        theme: solarized
+        center: true 
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, collapse=T}
+library(tidyverse)
+library(ggplot2)
+library(maps)
+library(ggpubr)
+library("httr")
+library("readxl")
+library(igraph)
+library(gganimate)
+library(hrbrthemes)
+library(RColorBrewer)
+library(dplyr)
+library(gridExtra)
+library(tidygeocoder)
+library(ggmap)
+library(viridis)
+library(stringr) 
+library(plotly)
+library(networkD3)
+library(readxl)
+library(readr)
+library(tibble)
+library(htmlwidgets)
+library(magrittr)
+
+
+nodes_test <- read_excel("C:/Users/JoshsGaming/Desktop/nodes_test.xlsx")
+links_test <- read_excel("C:/Users/JoshsGaming/Desktop/Links_test.xlsx")
+
+USA_Core_Based_Statistical_Area <- read_csv("C:/Users/JoshsGaming/Desktop/USA_Core_Based_Statistical_Area.csv")
+
+university_ranking_17 <- read.csv("https://query.data.world/s/ixvvzp4hiw23rocypcmclwluza5xq3", header=TRUE, stringsAsFactors=FALSE)
+
+startup_investments <- read_csv("C:/Users/JoshsGaming/Desktop/investments_VC.csv") 
+GET("https://query.data.world/s/7dyszgmhkfqafr4nllqvovckuxnw6t", write_disk(tf <- tempfile(fileext = ".xlsx")))
+commercial <- read_excel(tf)
+```
+
+
+# Thesis Question 
+## What cities are considered prosperous Tech Hubs? 
+> _NOTE: Given the fact that talent, VC Funding, and commercial real estate spaces contribute to this._  
+
+<img src="C:/Users/JoshsGaming/Desktop/silicon_valley_image.jpg"  height="300" width="500">
+
+# Project Breakdown 
+## Chapter's Overview
+- Chapter 1: Talent Migration [Orobosa Ogbeide]
+- Chapter 2: Commercial Real Estate [Jade Ou]
+- Chapter 3: VC Funding & Startups [Jocelyn Chung]
+- Chapter 4: Tech Hub effects [Joshua Ortega]
+- Chapter 5: Conclusion [Everyone]
+
+
+# Chapter 1.
+## Talent Migration 
+  
+##### Every city/metro area has its fair share of college graduates. However not all cities attract the same amount of talent when stacked up against each other. In this chapter we use various datasets gathered from Linkedin, USNews Report, and Kaggle on where the top university graduates are moving to. This will give us a good idea of where the best and brightest minds are choosing to congregate. It’s important to understand that in this analysis we hope to see what cities/metro areas are also outliers. This means what cities/metro areas are not only punching above their weight-class, but also what cities/metro areas are lacking in gathering top university talent. Finally later on we will see if this analysis stackups with where the Startup(s) and VC Funding are primarily located. 
+
+
+## Chapter questions:
+> 
+* ##### What cities/metro areas are punching above their weight-class and attracting a lot of talent in relation to their city/metro area population ranking among other cities/metro area populations? 
+* ##### What cities/metro areas are falling behind and not bringing in a lot of talent in relation to their city/metro area population ranking among other cities/metro area populations?
+* ##### What cities/metro areas have an above average TMI score? 
+* ##### Is Population a good predictor of  a cities TMI score? 
+
+
+---
+## 2017 USNews University Ranking Dataset   
+```{r, collapse=T}
+university_ranking_17$Description <- NULL
+university_ranking_17$Tuition.and.fees <- NULL
+university_ranking_17$In.state <- NULL
+university_ranking_17$Undergrad.Enrollment <- NULL
+```  
+
+```{r, collapse=T}
+# Cleaning data and adding a geo-location (longitude and latitude to each college) 
+University_data <- data.frame(do.call('rbind',  strsplit(as.character(university_ranking_17$Location),',',fixed=TRUE)))
+newframe <- cbind(university_ranking_17,University_data)
+names(newframe)[4] <- "city"
+names(newframe)[5] <- "state"
+#head(newframe)
+newframe <- newframe %>%
+mutate(country = "US")
+ register_google(key = "AIzaSyCfOedtZQUjFqgzbJx1QJ7mKep0lMEAgJQ")
+ b = geocode(newframe$Location)
+ college_ranking <- cbind(newframe,b)
+head(college_ranking)
+``` 
+
+
+## Top Ranked Universities  
+
+```{r, collapse=T}
+# geo styling
+ g <- list(
+  scope = 'usa',
+  projection = list(type = 'usa'),
+  showland = TRUE,
+  landcolor = toRGB("gray95"),
+  subunitcolor = toRGB("gray85"),
+  countrycolor = toRGB("gray85"),
+  countrywidth = 0.5,
+  subunitwidth = 0.5
+)
+
+fig <- plot_geo(college_ranking, lat = ~lat, lon = ~lon)
+
+fig <- fig %>% add_markers(
+    text = ~paste(Name, Location, country, paste("Rank:", Rank), sep = "<br />"),
+    color = ~Rank, symbol = I("square"), size = I(8), hoverinfo = "text"
+  )
+
+fig <- fig %>% colorbar(title = "Ranking")
+Top_Universities_2017 <- fig %>% layout(
+    title = 'USNews Report - Top Ranked Universities in 2017', geo = g
+  )
+```
+
+## USNews Report - Top Ranked Universities in 2017
+
+###### Something that is interesting is that some cities have not 1, but several top universities in their city. Places like Los Angeles, Bay Area, Dallas, Chicago, Boston, and New York to name a few. Nonetheless this is simple to get a broad sense of where colleges are located.
+
+```{r, collapse=T, fig.height= 3, fig.width=10}
+Top_Universities_2017
+```
+
+
+## Metro Area Ranking (Population.) 
+
+##### Below is data [Barchart] showing the largest Metro Areas by population. We will use this dataset to compare the rankings of largest metro areas vs the metro areas that pull in the most talent from various Universities. 
+
+>* ##### NOTE: We will focus on seeing the largest 30 metro areas by population. 
+
+```{r, collapse=T}
+# Cleaning data 
+ USA_Core_Based_Statistical_Area <- USA_Core_Based_Statistical_Area[, -c(7:53)]
+ USA_Core_Based_Statistical_Area <- USA_Core_Based_Statistical_Area[, -c(1:3)]
+ USA_Core_Based_Statistical_Area <- subset(USA_Core_Based_Statistical_Area, USA_Core_Based_Statistical_Area$CBSA_TYPE != "Micropolitan") 
+ USA_Core_Based_Statistical_Area <- arrange(USA_Core_Based_Statistical_Area, desc(POPULATION))
+ USA_Core_Based_Statistical_Area  = USA_Core_Based_Statistical_Area[-c(13,14),]
+ largest_metros <- USA_Core_Based_Statistical_Area[1:30,]
+ names(largest_metros)[names(largest_metros) == "NAME"] <- "name"
+ names(largest_metros)[names(largest_metros) == "POPULATION"] <- "Population"
+ largest_metros <- largest_metros %>% mutate(Metro_Pop_Rank = 1:n())
+```
+
+## Top 30 Metro Areas by Population 
+```{r, collapse=T, fig.height= 4, fig.width=8}
+largest_metros %>%
+mutate(`name` = fct_reorder(`name`, Population)) %>%
+ggplot(aes(x=`name`, y=Population,fill = `name`)) +
+  geom_bar(stat = "identity") + coord_flip() + scale_fill_discrete(guide=FALSE)
+```
+
+## Talent Migration Index (TMI.)
+>
+* ##### In order to properly weigh the level of talent acquisition for various cities we came up with the concept of the a _Talent Migration Index or (TMI)_.
+
+
+
+$$M_k = \frac{\text{Number of graduates who move to city from University}}{\text{Total number of graduates from University}}* 100.00$$
+$$TMI = \sum_{k=1}^{n} X_k , M_k\geq2.00$$
+
+## Calculating TMI Score.
+```{r, collapse=T}
+Metro_Area_ID <- filter(nodes_test, (nodes_test$ID >= 1 & nodes_test <= 9) | nodes_test$ID > 239)
+talent <- filter(links_test, links_test$value >= 2)
+
+Assumed_Techhub_TMI <- filter(talent, talent$target == 1 | talent$target == 2 | talent$target == 3 | talent$target == 4 | talent$target == 5 | talent$target == 249 | talent$target == 7 | talent$target == 8 | talent$target == 9 | talent$target == 243 | talent$target == 242) 
+
+
+Talent_migation_index <- count(talent, target)
+Talent_migation_index  = Talent_migation_index[-c(146),]
+names(Talent_migation_index)[names(Talent_migation_index) == "n"] <- "TMI"
+names(Talent_migation_index)[names(Talent_migation_index) == "target"] <- "ID"
+
+
+TMI <- merge(Metro_Area_ID,Talent_migation_index, by = "ID")
+Final_TMI <- arrange(TMI, desc(TMI))
+Final_TMI <- left_join(largest_metros,Final_TMI, by = "name")
+Top_30_TMI <- arrange(Final_TMI, desc(TMI))
+Top_30_TMI <- Top_30_TMI %>% mutate(Metro_TMI_Rank = 1:n())
+Top_30_TMI <- arrange(Top_30_TMI, desc(TMI))
+```
+
+## Top 30 TMI Scores
+```{r, collapse=T}
+head(Top_30_TMI, 30)
+```
+
+## Outperforming Cities: 
+```{r, collapse=T}
+Top_10_TMI <- head(Top_30_TMI, 10)
+Outperforming_Cities <- filter(Top_10_TMI, Top_10_TMI$Metro_Pop_Rank > Top_10_TMI$Metro_TMI_Rank)
+head(Outperforming_Cities)
+```
+
+## Outperforming City Network Visualization
+```{r, collapse=T}
+Outperform_link <- filter(talent,talent$target == 2 | talent$target == 5 | talent$target == 8 |talent$target == 3 | talent$target == 6) 
+
+
+Out <- forceNetwork(Links = Outperform_link, Nodes = nodes_test,
+           Source = "source", Target = "target",
+           Value = "value", NodeID = "name",
+           Group = "group", fontSize = 16,colourScale = JS("d3.scaleOrdinal(d3.schemeCategory10);"),legend=TRUE, linkDistance = 100, zoom=TRUE,opacity =  0.9)
+
+link_value_js <- '
+ function(el) { 
+    d3.select(el)
+      .selectAll(".link")
+      .append("title")
+      .text(d => d.value);
+  }
+'
+```
+
+## Outperforming Cities Network Visualization
+```{r, collapse=T}
+onRender(Out, link_value_js)
+```
+
+## Underperforming Cities: 
+```{r, collapse=T}
+Underperform_Cities <- filter(Top_10_TMI, Top_10_TMI$Metro_Pop_Rank < Top_10_TMI$Metro_TMI_Rank)
+head(Underperform_Cities)
+```
+
+## Underperforming Cities Network Visualization
+```{r, collapse=T}
+Underperform_link <- filter(talent,talent$target == 4 | talent$target == 246 | talent$target == 7) 
+
+Under <- forceNetwork(Links = Underperform_link, Nodes = nodes_test,
+           Source = "source", Target = "target",
+           Value = "value", NodeID = "name",
+           Group = "group", fontSize = 16,colourScale = JS("d3.scaleOrdinal(d3.schemeCategory10);"),legend=TRUE, linkDistance = 100, zoom=TRUE,opacity =  0.9)
+
+link_value_js <- '
+ function(el) { 
+    d3.select(el)
+      .selectAll(".link")
+      .append("title")
+      .text(d => d.value);
+  }
+'
+```
+
+## Underperforming Cities Network Visualization
+```{r, collapse=T}
+onRender(Under, link_value_js)
+```
+
+## What cities have an above average TMI score? 
+```{r, collapse=T}
+summary(TMI)
+above_avg_TMI <- filter(Top_30_TMI, Top_30_TMI$TMI > 2.0)
+above_avg_TMI
+```
+
+## Analyzing the correlation between Population and TMI
+```{r, collapse=T}
+TMI_Pop = lm(formula = TMI~Population, data = Top_30_TMI) #Create the linear regression
+summary(TMI_Pop)
+```
+
+## TMI ~ Pop. Linear Model 
+```{r, collapse=T,fig.height= 3, fig.width=7}
+TMI_Pop_Model <- ggplot(Top_30_TMI, aes(y = TMI, x = Population)) +
+geom_point() + geom_smooth(method = "lm", col = "beige") + stat_regline_equation() + labs(title = "TMI vs Population.")
+TMI_Pop_Model
+```
+
+
+# Chapter 2. 
+## Commercial Real Estate and Office Space
+  
+##### Having a large talent pool in any given area isn’t helpful if you don't provide those young minds with work spaces to collaborate in. In this chapter we will use a dataset showing where commercial real estate was sold in 2017, the Area square footage, price, and more to see what cities/metro areas have large office spaces as a sign of large collaboration environments. 
+
+  
+## Chapter questions:
+>
+* ##### What cities had the most commercial office space sold? 
+* ##### Is there any correlation between the number of office spaces sold and the size of the space? 
+
+## 2017 Commercial Real Estate Sold Dataset
+```{r, collapse=T}
+commercial$url <- NULL
+commercial$Email <- NULL
+commercial$`phone, 2` <- NULL
+commercial$`secondary broker` <- NULL
+commercial$EMAIL <- NULL
+commercial$phone <- NULL
+commercial$Images <- NULL
+commercial$`Other Info` <- NULL
+commercial$broker<- NULL
+commercial$`Year Built` <- NULL
+commercial$`Owner Name` <- NULL
+commercial$`Mailing Address` <- NULL
+commercial$City <- NULL
+``` 
+
+## Cleaning 2017 Commercial Real Estate Sold Dataset
+###### Before diving into Commercial Real Estate, we want to focus on specific variables. These include filtering for only office spaces, as well as their total area (SF.), price, and city.
+```{r, collapse=T}
+commercial <- subset(commercial, select = -c(`Number of Units`,`Number Of Stories`,`Lot Size`))
+ 
+commercial$Price <- stringr::str_replace(commercial$Price, '\\$', '')
+commercial$Price <- stringr::str_replace(commercial$Price, '\\,', '')
+commercial$Price <- stringr::str_replace(commercial$Price, '\\,', '')
+commercial$`Total area` <- stringr::str_replace(commercial$`Total area`, '\\SF', '')
+commercial$`Total area` <- stringr::str_replace(commercial$`Total area`, '\\,', '')
+commercial <- commercial %>% drop_na()
+commercial$Price <- as.double(commercial$Price)
+commercial$`Total area` <- as.double(commercial$`Total area`)
+
+city_office_space <- filter(commercial, commercial$Type == 'Office')
+ names(city_office_space)[names(city_office_space) == "Address"] <- "City"
+
+city_office_space$City <- stringr::str_replace(city_office_space$City, '\\·', '')
+city_office_space$City <- gsub('[[:digit:]]+', '', city_office_space$City)
+#city_office_space <- city_office_space %>%
+ # separate(City, c("City", "State"), ",")
+head(city_office_space,10)
+```
+
+## Cleaning 2017 Commercial Real Estate Sold Dataset
+#### Finding each cities long. and lat. 
+```{r, collapse=T}
+city_office_space_geo <- mutate_geocode(city_office_space, City)
+```
+
+```{r, collapse=T}
+city_office_space <- city_office_space_geo
+```
+
+## Top 10 Cities That Sold the Most Office Space
+```{r, collapse=T}
+city_office_space <- group_by(city_office_space, City)
+
+office_space_num <- summarise(city_office_space, "Number of office spaces" = n(), "Average office space area size [SF.]" = mean(`Total area`))
+
+office_space_num <- office_space_num %>% drop_na()
+office_space_num <- arrange(office_space_num, desc(`Number of office spaces`))
+head(office_space_num, 10)
+```
+
+## Set Up to create bubble code
+```{r, collapse=T}
+# Add lat and lon values to each city in office_space_num data frame b/c office_space_num does not have repeat cities
+office_space_num <- mutate_geocode(office_space_num, City)
+
+```
+
+## Bubble Plot of the Number of Office Spaces Sold
+```{r, collapse=T}
+# Plot number of office spaces sold onto map of US (map from ch1)
+office_fig <- plot_geo(office_space_num, lat = ~lat, lon = ~lon, sizes = c(1, 100))
+office_fig <- office_fig %>% add_markers(x = ~lon, y = ~lat, size = ~office_space_num$`Number of office spaces`, 
+                                         hoverinfo = "text", 
+                                         text = ~paste(office_space_num$City, office_space_num$`Number of office spaces`, "<br />"))
+office_fig <- office_fig %>% layout(title = "Bubble Map of Office Spaces Sold in 2017", geo = g)
+
+```
+
+## Bubble Plot of the Number of Office Spaces Sold
+```{r}
+office_fig
+```
+
+
+```{r, collapse=T}
+city_office_space
+office_space_num
+```
+
+
+## Number of Office Spaces Sold vs Average Office Space Area Size
+```{r, collapse=T}
+shapiro.test(office_space_num$`Average office space area size [SF.]`)
+shapiro.test(office_space_num$`Number of office spaces`)
+
+# Plot Number of Office Spaces Sold vs Average Office Space Area Size to get plot for visualization
+sold_vs_size <- ggscatter(data = office_space_num, x = "Average office space area size [SF.]", y = "Number of office spaces",
+          add = "reg.line", conf.int = TRUE,
+          cor.coef = TRUE, cor.method = "spearman",
+          main = "Number of Office Spaces Sold vs Average Office Space Area Size",
+          xlab = "Average Office Space Area Size",
+          ylab = "Number of Office Spaces")
+```
+
+## Number of Office Spaces Sold vs Avg Office Space Area Size
+```{r}
+sold_vs_size
+```
+
+## Number of Office Spaces Sold vs Avg Office Space Area Size continued
+##### In the above scatterplot, the correlation coefficient between the number of office spaces sold vs the average office space area size is 0.15. Given the correlation coefficient, there is a weak, positive correlation between the two variables. It can be observed that Las Vegas, NV was a location where there was the most office spaces sold in 2017.  Following that was Phoenix, AZ, Omaha, NE, and Denver, CO.
+
+
+
+# Chapter 3. 
+## Startups and VC Funding 
+  
+##### The creation of startups combined with the inflow of VC Funding in concentrated metro areas/cities aids in building the foundation of a successful “Tech Hub”. In this chapter we will use several datasets to explore aspects like the number of startups located in an  metro area/city, what sector of the economy they’re in, as well as the amount of VC Funding each has amassed. 
+
+
+## Chapter questions:
+>
+* ##### What cities/metro area have the largest concentration of startups in addition to a large amount of VC Funding? 
+* ##### Also similar to chapter 1, do these cities punch above their weight class in terms of # of startups and VC Funding in relation to their city/metro area population ranking among other cities/metro area populations?
+* ##### Does a Metro Areas total amount of Venture Capital correlated to a Metro Areas total number of startups? [i.e can we somewhat predict the number of startups a Metro Area will have based on the amount of Venture Capital]. 
+
+## 2017 Startups & Venture Capital 
+##### Data below is gather from a 2014 Crunchbase startup report. 
+```{r, collapse=T}
+#cleaning up data
+startup_investments2 <- startup_investments %>%
+  #change comma seperated numbers in funding_total_usd to numeric
+  mutate(funding_total_usd = as.numeric(gsub(",", "", startup_investments$funding_total_usd))) %>%
+  #filter out NAs
+  filter(country_code == "USA", !is.na(founded_year), !is.na(funding_total_usd)) %>%
+  #select interested columns
+select(name, category_list, market, funding_total_usd, status, 	
+country_code, state_code, region, city, funding_rounds, founded_year, venture)%>%
+  arrange(desc(funding_total_usd))
+ names(startup_investments2)[names(startup_investments2) == "region"] <- "Metro Area"
+head(startup_investments2)
+```
+
+
+## Top Cities by Total VC Funding
+##### In this section I found the top 30 metropolitans with the highest VC Funding. I chose to focus on metropolitans instead of individual cities because focusing the dataset on specific cities leads to disadvantagely favorable results for some metropolitan areas with generally higher VC funding. Metropolitan areas are also more influential as Tech Hubs than singular cities. 
+```{r, collapse=T}
+#find total venture per region
+region_totalVC <- startup_investments2 %>%
+  group_by(`Metro Area`)%>%
+  summarise(total_VC = sum(venture))%>%
+  arrange(desc(total_VC))
+
+#Select the top 30 regions and combine with new other row consisting of the sum of all rows below the 30th
+region_totalVC_top30 <- rbind(top_n(region_totalVC,30),
+       slice(region_totalVC, 11:n())%>%
+   summarise(`Metro Area` = "Other", total_VC = sum(total_VC)))
+```
+
+## Top Metro Area by Total VC Funding
+```{r, collapse=T}
+head(region_totalVC_top30, 30)
+```
+
+## Top 30 Metro Areas by Total VC Funding 
+```{r, collapse=T}
+#plot Metro Area vs Total Venture      
+Metro_Total_vc <- ggplot(data = region_totalVC_top30) +
+  geom_bar(mapping = aes(x = reorder(`Metro Area`, total_VC, FUN = median), y = total_VC, fill = `Metro Area`), stat = "identity")+ 
+  xlab("Metro Area") +
+  ylab("Total Venture") +
+  coord_flip() +
+  scale_fill_hue(c = 40)
+```
+
+
+## Top 30 Metro Areas by Total VC Funding  Visualization 
+```{r, collapse=T,  fig.height= 5, fig.width=8}
+Metro_Total_vc
+#### The bar graph below shows that SF Bay Area has overwhelmingly more total Venture Capital Funding than any other Metro Area. Although Boston and New York trails behind by a significant margin they're still gathered more funding then most of other Metro Area's.
+```
+
+## Median Venture Capital 
+```{r, collapse=T}
+Region_Venture <- startup_investments2%>%
+  #filter by the top 10 results from the previous section
+  filter(`Metro Area` == c("Austin", "Boston", "Chicago", "Denver", "Los Angeles", "New York City", "San Diego", "SF Bay Area", "Seattle", "Washington, D.C."))%>%
+  select(`Metro Area`, venture)%>%
+  #filter out companies with no VC funding
+  filter(venture != 0)
+
+#Create a boxplot to check outliers
+Metro_Area_Venture <- ggplot(data = Region_Venture, aes(fill =`Metro Area`)) +
+  geom_boxplot(mapping = aes(x = reorder(`Metro Area`, venture, FUN = median), y = venture))+
+  xlab("Metro Area") +
+  ylab("Venture") +
+  #zoom in to exclude extreme outliers
+  coord_flip(ylim=c(25000, 1.5e+8)) +
+    theme_ipsum() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6)
+```
+
+## Median Venture Capital Visualization 
+
+```{r, collapse=T,  fig.height= 5, font-size: 2}
+Metro_Area_Venture
+#### From these boxplots, we can see that the results of total VC funding may have been distorted due to many extreme outliers. Sorting by median, Boston appears to have a higher median VC Funding than SF Bay Area. But it is not clear how closely similar are the region's median VC Funding with this plot
+```
+
+## Top 30 Metro Areas by Number of Startups 
+```{r, collapse=T}
+#find number of startups for top 30 regions
+region_numStartups <- startup_investments2%>%
+  group_by(`Metro Area`)%>%
+  count%>%
+  arrange(desc(n))%>%
+  head(30) %>%
+  rename(numCompanies = n)
+
+#plot Metro aREA vs number of startups
+Metro_Area_startup_num <- ggplot(data = region_numStartups) +
+  geom_bar(mapping = aes(x = reorder(`Metro Area`, numCompanies, FUN = median), y = numCompanies, fill = `Metro Area`), stat = "identity")+ 
+  xlab("Metro Area") +
+  ylab("Number of Startups") +
+  coord_flip() +
+  scale_fill_hue(c = 40) +
+    theme_ipsum()
+```
+
+## Top 30 Metro Areas by Number of Startups Visualization
+```{r, collapse=T,  fig.height= 5, fig.width=8}
+Metro_Area_startup_num
+#### Unlike Median VC Funding, SF Bay Area has an objectively higher amount of startups. The amount of startups in SF could explain the disproportionate amount of Venture Capital per company.
+``` 
+
+
+## Metro Area Pop. vs VC Funding 
+```{r, collapse=T}
+Metro_Pop <- read.csv("C:/Users/JoshsGaming/Desktop/USA_Core_Based_Statistical_Area.csv")
+
+Metro_Pop2 <- Metro_Pop%>%
+  #filter out missing values and focus on Metropolitans
+  filter(!is.na(POPULATION), !is.na(POP_SQMI), CBSA_TYPE == "Metropolitan")%>%
+  #change NAME factor to character
+  mutate(NAME = as.character(NAME)) %>%
+  select(NAME, POPULATION, POP_SQMI)
+
+#select the top 10 regions and combine with new other row consisting of the sum of all rows below the 10th
+region_totalVC_top10 <- rbind(top_n(region_totalVC,10),
+       slice(region_totalVC, 11:n())%>%
+   summarise(`Metro Area` = "Other", total_VC = sum(total_VC)))
+
+top10_Metro <- Metro_Pop2%>%
+  #filter by top 10 regions
+  filter(str_detect(NAME, "Bay Area|New York|Boston|Los Angeles|San Diego|Seattle|Chicago|Washington|Austin|Denver"))%>%
+  #change names for merging 
+  mutate(Names =  c("Austin", "Boston", "Chicago", "Denver", "Los Angeles", "New York City", "San Diego", "SF Bay Area", "Seattle", "Washington, D.C."))%>%
+  select(Names, POPULATION, POP_SQMI)
+
+#merge the two datasets together
+top10_RegionPer_Pop <- left_join(region_totalVC_top10, top10_Metro, by = c("Metro Area"="Names"))
+
+#prepare the data for plot
+Region_VC_POP <- top10_RegionPer_Pop%>%
+  #filter out missing values
+  filter(!is.na(POPULATION), !is.na(POP_SQMI))%>%
+  group_by(`Metro Area`)%>%
+  #assign score for easier interpretation
+  summarise(VC_POP_Score = (total_VC/POPULATION)/1000, VC_Density_Score = (total_VC/POP_SQMI)/1000000)%>%
+  arrange(desc(VC_POP_Score))
+
+#print to check
+Region_VC_POP
+
+#plot Region vs Venture population score Venture      
+Metro_Area_pop_vc_score <- ggplot(data = Region_VC_POP) +
+  geom_bar(mapping = aes(x = reorder(`Metro Area`, VC_POP_Score, FUN = median), y = VC_POP_Score, fill = `Metro Area`), stat = "identity")+ 
+  xlab("`Metro Area`") +
+  ylab("VC per Capita Score") +
+  coord_flip()  +
+  scale_fill_hue(c = 40) +
+    theme_ipsum()
+
+#plot Region vs Venture density score Venture
+Metro_Area_pop_vc_density_score <-ggplot(data = Region_VC_POP) +
+  geom_bar(mapping = aes(x = reorder(`Metro Area`, VC_Density_Score, FUN = median), y = VC_Density_Score, fill = `Metro Area`), stat = "identity")+ 
+  xlab("`Metro Area`") +
+  ylab("VC per Population Density Score") +
+  coord_flip()  +
+  scale_fill_hue(c = 40) +
+    theme_ipsum()
+```
+
+## Venture Capital per Capita Score
+```{r, collapse=T,  fig.height= 5, fig.width=8}
+Metro_Area_pop_vc_score
+```
+
+## Venture Capital Population Density Score 
+```{r, collapse=T,  fig.height= 5, fig.width=8}
+Metro_Area_pop_vc_density_score
+```
+
+
+## Analyzing the correlation between total amount of Metro Area VC and Metro Area number of startups
+#### More specifically can we accurately predict the totaal amount of startups a Metro Area will produce based on the total amount of VC Funding they accumulate. 
+```{r, collapse=T}
+Metro_Area_VC_Num_Startups <- merge(region_totalVC_top30, region_numStartups, by = "Metro Area")
+VC_Startup = lm(formula = numCompanies~total_VC, data = Metro_Area_VC_Num_Startups) 
+summary(VC_Startup)
+```
+
+
+## Total_VC vs numCompanies . Linear Model 
+```{r, collapse=T,fig.height= 3, fig.width=7}
+Metro_Area_VC_Num_Startups <- ggplot(VC_Startup, aes(y = numCompanies, x = total_VC)) +
+geom_point() + geom_smooth(method = "lm", col = "darkgreen") + stat_regline_equation() + labs(title = "Total amount of VC vs Number of Startups")
+Metro_Area_VC_Num_Startups
+```
+
+
+# Chapter 4. 
+## Effects of being a “Tech Hub”
+  
+##### Before we conclude our analysis in seeing what cities/metro areas answer our thesis question. We look to see what are side effects of being considered a “Tech Hub”. Thus we will gather several datasets that look at city/metro area homeless population, cost of living, housing prices, GDP per capita, wages, and overall quality of life. 
+
+
+## Chapter questions:
+>
+* ##### What are the pros or cons of being a “Tech Hub”?
+* ##### Do city housing prices increase or decrease? 
+
+## Cost of living Data from 2007 to 2020
+```{r, collapse=T}
+# Store the excel sheets in a variable. (Stored in decreasing order 2020 - 2007)
+a <- excel_sheets("C:/Users/JoshsGaming/Desktop/2007-2020-PIT-Estimates-by-CoC2.xlsx")
+
+# Flip the order of the vector to go from 2007 - 2020.
+(a <- a[14:1])
+
+# Store in a dataframe variable the now read in excel doc.
+df <- lapply(setNames(a, a), function(s) read_excel("C:/Users/JoshsGaming/Desktop/2007-2020-PIT-Estimates-by-CoC2.xlsx", sheet = s))
+
+# List of cities/counties of interest from the `CoC Name` column of each sheet in the excel document.
+cities <- c("San Jose", "San Francisco", "Seattle", "New York City", "Los Angeles", "Boston", "Austin", "Cook County", "Denver", "Atlanta", "Portland")
+
+# Initialize an empty data.frame variable to store specific columns of interest from each sheet.
+homeless_total <- data.frame()
+
+# Iterate through the data to store each year (2007 - 2020 inclusive is 14 total years)
+for (i in 1:14) { # Filter out from `CoC Name` the strings of interest from before.
+  list <- df[[i]] %>%
+  filter(str_detect(`CoC Name`, pattern = paste(cities, collapse = "|"))) %>%
+    select(`CoC Name`,`Overall Homeless`) %>%
+    mutate(CoC_Year = 2006 + i) # Create a new variable CoC Year to make sorting easier.
+  dat <- data.frame(list)
+  homeless_total <- rbind(homeless_total, dat)
+}
+
+# Sort the cities/counties alphabetically and print to check.
+homeless_total %<>% arrange(CoC.Name)
+homeless_total
+
+
+Coc_plot <- plot_ly(homeless_total, x = ~CoC_Year, y = ~Overall.Homeless, name = ~CoC.Name) %>%
+  add_lines()
+```
+
+
+## Homelessness in Metro Areas [2007 - 2020]
+```{r, collapse=T}
+Coc_plot
+```
+
+## Housing Prices
+
+```{r, collapse=T}
+CountyHousingCost <- read_csv(file = "C:/Users/JoshsGaming/Desktop/County_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_mon.csv")
+
+cities <- c("Santa Clara", "San Francisco", "King", "Multnomah", "Los Angeles", "Suffolk", "Austin", "Cook County", "Denver", "Fulton", "New York")
+states <- c("CA", "OR", "IL", "CO", "MA", "TX", "WA", "GA", "NY")
+
+names <- CountyHousingCost[, 3:5]
+years <- CountyHousingCost[, 142:ncol(CountyHousingCost)]
+
+HousingCostCleaned <- cbind(names, years)
+
+# Iterate through the data to store each year (2007 - 2020 inclusive is 14 total years)
+HousingCostCleaned %<>%
+  filter(str_detect(RegionName, pattern = paste(cities, collapse = "|"))) %>%
+  filter(str_detect(StateName, pattern = paste(states, collapse = "|")))
+
+HousingCostCleaned <- HousingCostCleaned[-c(3, 7, 13, 14, 15, 17), ]
+
+#Get the average on a yearly basis from every monthly value between 2007 - 2020
+avg_cost <- data.frame()
+for (a in 1:11) {
+  for (b in 0:13) {
+    avg_cost[a, b + 1] = sum(HousingCostCleaned[a, (4 + 12 * b):(15 + 12 * b)]) / 12
+  }
+}
+
+# Rename the avg_cost columns to accurately reflect what the values represent.
+avg_cost <- rename(avg_cost, Avg_2007 = V1, Avg_2008 = V2, Avg_2009 = V3,
+                   Avg_2010 = V4, Avg_2011 = V5, Avg_2012 = V6,
+                   Avg_2013 = V7, Avg_2014 = V8, Avg_2015 = V9,
+                   Avg_2016 = V10, Avg_2017 = V11, Avg_2018 = V12,
+                   Avg_2019 = V13, Avg_2020 = V14
+                   )
+
+HousingCostCleaned %<>%
+  group_by(RegionName) %>%
+  select(RegionName) %>%
+  cbind(avg_cost)
+
+HousingCostCleaned
+
+# Gather the names of each region.
+names <- HousingCostCleaned$RegionName
+
+
+FinalHousingCost <- data.frame()
+for(a in 1:14) {
+  for(b in 1:11) {
+    list <- HousingCostCleaned[b, 1]
+    dat <- data.frame(list)
+    FinalHousingCost <- rbind(FinalHousingCost, dat)
+  }
+}
+
+test <- data.frame()
+for (a in 1:14) {
+  list <- HousingCostCleaned %>%
+    dplyr::mutate(Year = 2006 + a)
+  dat <- data.frame(list)
+  test <- rbind(test, dat)
+}
+
+test <- as.tibble(test[,16])
+
+FinalHousingCost <- cbind(FinalHousingCost, test)
+
+test <- gather(HousingCostCleaned, Year, Cost, -RegionName)
+
+FinalHousingCost <- cbind(FinalHousingCost, test[, 3])
+
+FinalHousingCost %<>% rename(Year = value, County = RegionName) %>%
+  arrange(County)
+
+Housing_Plot <- plot_ly(FinalHousingCost, x = ~Year, y = ~Cost, name = ~County) %>%
+  add_lines()
+```
+
+## Housing Prices in Metro Areas (2007 - 2020)
+```{r, collapse=T}
+Housing_Plot
+```
+
+
+# Chapter 5. Key Findings and Conclusion:
+
+## Chapter 1 Key Findings and Conclusion:
+##### Based on our analysis in Chapter.1 we can confidently say that cities/metro areas who were in the top 10 of TMI Scores or outperformed relative to their population size could be considered successful Tech Hubs.
+- This includes cities such as: SF Bay Area, Boston, & NYC.
+
+
+## Chapter 2 Key Findings & Conclusion:
+#### As said previously, Las Vegas, NV was a location where there was the most office spaces sold in 2017, while our presumed tech hub cities such as NYC, Boston, or SF Bay Area did not appear within the top 10 list. The reason for this can be explained by fact that those listed cities are already major tech hub cities, and most companies/startups already have office spaces. Since they already have established locations (before 2017) it would be uncommon for them to purchase a new office location.
+
+## Chapter 3 Key Findings & Conclusion:
+##### From the work done in Chapter 3 we can state that there was a strong positive correlation between the number of startups and the amount of VC funding in a city. This is also representative of a successful tech hub as reflected by cities like the SF Bay Area.
+- Information like this could further influence where STEM graduates decide to go after college and can be used by other cities looking towards becoming a tech hub.
+
+## Chapter 4 Key Findings & Conclusion:
+##### The findings in Chapter 4 went against our initial hypothesis that tech hubs contribute to a rise in homeless rates within their respective regions, however, it also went on to reinforce our secondary hypothesis that regions on track to becoming or which are already considered a tech hub definitely see a rise in housing prices.
+
+## Final Thoughts
+##### Along with the information gathered and evaluated in the other chapters, each chapter presents important information for local legislators, investors, businesses, and college graduates, among many other groups, who each play some role in the development or continued prominence of tech hubs across the country. 
+
+
+## Thank you!
+### If there are any questions, feel free to ask!
